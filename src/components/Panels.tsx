@@ -172,10 +172,13 @@ export function SystemPanel({ status }: { status: Status | null }) {
               <input
                 type="checkbox"
                 checked={t.status.enabled}
-                disabled={busy === t.manifest.id}
+                disabled={busy === t.manifest.id || t.control_enabled === false}
                 onChange={(e) => toggle(t.manifest.id, e.target.checked)}
               />
-              <span>{t.status.enabled ? "Bật" : "Tắt"}</span>
+              <span title={t.control_enabled === false ? "Bản công khai: không cho bật/tắt từ web" : undefined}>
+                {t.status.enabled ? "Bật" : "Tắt"}
+                {t.control_enabled === false && " 🔒"}
+              </span>
             </label>
           </div>
           <div className="mono small muted">

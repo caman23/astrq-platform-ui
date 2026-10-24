@@ -159,6 +159,7 @@ export interface ToolInfo {
   };
   config: Record<string, unknown>;
   status: ToolStatus;
+  control_enabled?: boolean;
 }
 
 export interface Instrument {
