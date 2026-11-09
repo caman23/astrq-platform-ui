@@ -1,5 +1,8 @@
 import type { Order, RadarSymbol, Trade } from "../api";
+import { HORIZONS } from "../api";
 import {
+  HORIZON_LABEL,
+  moveClass,
   FLAG_LABEL,
   KIND_LABEL,
   SEVERITY_ICON,
@@ -66,6 +69,32 @@ function OrderLine({ o }: { o: Order }) {
           <span className={o.price_change_pct >= 0 ? "up" : "down"}>{pct(o.price_change_pct)}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Price 5/15/30 minutes after the order's first signal, coloured from its side. */
+export function OutcomeRow({ o }: { o: Order }) {
+  const oc = o.outcome;
+  if (!oc) return null;
+  const cells: [string, number | null][] = [
+    ...HORIZONS.map((h) => [HORIZON_LABEL[h], oc[h]] as [string, number | null]),
+    ["nay", oc.now],
+  ];
+  const pending = HORIZONS.every((h) => oc[h] == null);
+  return (
+    <div
+      className="outcome small"
+      title={`Giá lúc tín hiệu đầu tiên: ${price(oc.ref_price)}. Màu xanh = giá đi theo chiều lệnh.`}
+    >
+      <span className="muted">Giá sau tín hiệu</span>
+      {cells.map(([label, v]) => (
+        <span key={label} className="outcome-cell">
+          <span className="muted">{label}</span>{" "}
+          <b className={`mono ${moveClass(v, o.side)}`}>{v == null ? "—" : pct(v)}</b>
+        </span>
+      ))}
+      {pending && <span className="muted"> · chờ đủ 5 phút</span>}
     </div>
   );
 }
@@ -157,6 +186,7 @@ export function OrderPeek({ s }: { s: RadarSymbol }) {
       {s.orders.slice(0, 4).map((o) => (
         <OrderLine key={o.id} o={o} />
       ))}
+      {latest && <OutcomeRow o={latest} />}
       {latest && latest.trades.length > 0 && (
         <>
           <div className="section-title">
@@ -216,6 +246,7 @@ export function OrderFull({ s }: { s: RadarSymbol }) {
             </ul>
           )}
           <Flags flags={o.quality_flags} />
+          <OutcomeRow o={o} />
           <div className="section-title">Điểm radar gồm</div>
           <Explanation o={o} />
           <div className="section-title">

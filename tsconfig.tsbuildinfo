@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/Embed.tsx","./src/api.ts","./src/format.ts","./src/main.tsx","./src/useLive.ts","./src/useThrottledReload.ts","./src/components/OrderDetails.tsx","./src/components/Panels.tsx","./src/components/Radar.tsx"],"version":"5.6.3"}
+{"root":["./src/App.tsx","./src/Embed.tsx","./src/EmbedSectors.tsx","./src/api.ts","./src/format.ts","./src/main.tsx","./src/useLive.ts","./src/useThrottledReload.ts","./src/components/OrderDetails.tsx","./src/components/Panels.tsx","./src/components/Radar.tsx"],"version":"5.6.3"}

@@ -1,4 +1,4 @@
-// Types mirror the backend JSON (astrq/tools/large_order_radar/view.py and core/models.py).
+// Types mirror the backend JSON (backend-rs/src/tools/large_order_radar/view.rs, core/models.rs).
 
 export type Side = "buy" | "sell" | "unknown";
 export type Dominant = Side | "mixed";
@@ -55,7 +55,35 @@ export interface Order {
   max_single_value: number;
   triggers: string[];
   side_confidence: number;
+  /** absorption / accumulation: share of the window's flow on the pressured side */
+  flow_share?: number;
   trades: Trade[];
+  outcome?: Outcome | null;
+}
+
+/** Price move (%) after the order's first signal; null until the horizon has elapsed. */
+export interface Outcome {
+  ref_price: number;
+  "5m": number | null;
+  "15m": number | null;
+  "30m": number | null;
+  now: number | null;
+}
+
+export const HORIZONS = ["5m", "15m", "30m"] as const;
+
+export interface StatsRow {
+  group: "severity" | "family" | "all";
+  key: string;
+  orders: number;
+  n: number[];
+  hit_rate: (number | null)[];
+  avg_move: (number | null)[];
+}
+
+export interface Stats {
+  horizons: string[];
+  rows: StatsRow[];
 }
 
 export interface Baseline {
@@ -85,7 +113,38 @@ export interface RadarSymbol {
 
 export interface RadarView {
   trading_date: string;
+  /** set when viewing a past moment of the day (timeline) */
+  at?: string | null;
+  stats?: Stats;
   symbols: RadarSymbol[];
+}
+
+export interface SectorSymbol {
+  symbol: string;
+  large_buy: number;
+  large_sell: number;
+  net_large: number;
+  max_score: number;
+  max_severity: Severity;
+}
+
+export interface Sector {
+  sector: string;
+  n_symbols: number;
+  n_active: number;
+  large_buy: number;
+  large_sell: number;
+  net_large: number;
+  putthrough_value: number;
+  max_score: number;
+  max_severity: Severity;
+  symbols: SectorSymbol[];
+}
+
+export interface SectorsView {
+  trading_date: string;
+  at?: string | null;
+  sectors: Sector[];
 }
 
 export interface Signal {
@@ -174,11 +233,19 @@ async function getJson<T>(url: string): Promise<T> {
   return (await r.json()) as T;
 }
 
+const VIEW = "/api/tools/large_order_radar/view";
+const qs = (p: Record<string, string | undefined | null>) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) if (v) q.set(k, v);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+};
+
 export const api = {
-  view: (symbol?: string) =>
-    getJson<RadarView>(
-      `/api/tools/large_order_radar/view${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`,
-    ),
+  /** `at` = "HH:MM" (Vietnam time) for a past moment of today */
+  view: (symbol?: string | null, at?: string | null) =>
+    getJson<RadarView>(VIEW + qs({ symbol, at })),
+  sectors: (at?: string | null) => getJson<SectorsView>(VIEW + qs({ sectors: "1", at })),
   universe: () => getJson<{ instruments: Instrument[] }>("/api/universe"),
   tools: () => getJson<ToolInfo[]>("/api/tools"),
   signals: (limit = 150) =>

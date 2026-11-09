@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
-import type { RadarSymbol, Signal, Status, ToolInfo } from "../api";
+import type { RadarSymbol, Sector, Severity, Signal, Stats, StatsRow, Status, ToolInfo } from "../api";
 import { api } from "../api";
-import { KIND_LABEL, SESSION_LABEL, STATE_LABEL, hms, vnd } from "../format";
+import {
+  FAMILY_LABEL,
+  HORIZON_LABEL,
+  KIND_LABEL,
+  SESSION_LABEL,
+  SEVERITY_LABEL,
+  STATE_LABEL,
+  hms,
+  moveClass,
+  pct,
+  vnd,
+} from "../format";
 import { SeverityBadge, SideTag } from "./OrderDetails";
 
 export function SignalFeed({
@@ -204,6 +215,208 @@ export function SystemPanel({ status }: { status: Status | null }) {
           </details>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- accuracy (follow-through)
+
+const STATS_ORDER = ["all", "alert", "notice", "info", "block_order", "absorption", "accumulation"];
+
+function rowLabel(r: StatsRow): string {
+  if (r.group === "severity") return `Mức ${SEVERITY_LABEL[r.key as Severity] ?? r.key}`;
+  return FAMILY_LABEL[r.key] ?? r.key;
+}
+
+/** Share of orders whose price moved their way 5/15/30 minutes after the first signal. */
+export function StatsPanel({ stats }: { stats?: Stats }) {
+  const rows = (stats?.rows ?? [])
+    .filter((r) => STATS_ORDER.includes(r.key))
+    .sort((a, b) => STATS_ORDER.indexOf(a.key) - STATS_ORDER.indexOf(b.key));
+  if (!rows.length) {
+    return <p className="empty">Chưa có lệnh mua/bán nào đủ 5 phút để đánh giá.</p>;
+  }
+  return (
+    <div className="stats">
+      <table className="rank stats-table">
+        <thead>
+          <tr>
+            <th>Nhóm tín hiệu</th>
+            <th className="r">Lệnh</th>
+            {(stats?.horizons ?? []).map((h) => (
+              <th key={h} className="r">
+                Sau {HORIZON_LABEL[h] ?? h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.group}:${r.key}`} className={r.group === "all" ? "stats-all" : ""}>
+              <td>{rowLabel(r)}</td>
+              <td className="mono r">{r.orders}</td>
+              {r.hit_rate.map((h, i) => (
+                <td key={i} className="mono r" title={`${r.n[i]} lệnh đã đủ thời gian`}>
+                  {h == null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <>
+                      <b className={h >= 0.55 ? "up" : h <= 0.45 ? "down" : ""}>{Math.round(h * 100)}%</b>
+                      <div className={`small ${moveClass(r.avg_move[i], "buy")}`}>
+                        {r.avg_move[i] == null ? "" : pct(r.avg_move[i] as number)}
+                      </div>
+                    </>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">
+        % = tỷ lệ lệnh mà giá đi đúng chiều (mua → giá tăng, bán → giá giảm) sau khoảng thời gian
+        tính từ tín hiệu đầu tiên; dòng dưới = mức thay đổi giá trung bình theo chiều lệnh. Thống kê
+        trên dữ liệu đã qua của hôm nay, không phải dự báo. Thỏa thuận/khớp định kỳ không có chiều
+        nên không tính.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- sector heatmap
+
+/** Net large-order flow per sector: tone = direction, intensity = size. */
+export function SectorHeatmap({
+  sectors,
+  onPick,
+  compact = false,
+}: {
+  sectors: Sector[];
+  onPick?: (symbol: string) => void;
+  compact?: boolean;
+}) {
+  if (!sectors.length) return <p className="empty">Chưa có lệnh lớn nào hôm nay.</p>;
+  const maxAbs = Math.max(1, ...sectors.map((s) => Math.abs(s.net_large)));
+  return (
+    <div className={`heatmap ${compact ? "heatmap-compact" : ""}`}>
+      {sectors.map((s) => {
+        const heat = Math.sqrt(Math.abs(s.net_large) / maxAbs); // perceptual spread
+        const tone = s.net_large > 0 ? "var(--buy)" : s.net_large < 0 ? "var(--sell)" : "var(--unknown)";
+        const top = [...s.symbols]
+          .sort((a, b) => Math.abs(b.net_large) - Math.abs(a.net_large))
+          .slice(0, compact ? 3 : 5);
+        return (
+          <div
+            key={s.sector}
+            className="sector-tile"
+            style={{ "--heat": heat.toFixed(3), "--tone": tone } as React.CSSProperties}
+            title={`Mua lớn ${vnd(s.large_buy)} · Bán lớn ${vnd(s.large_sell)}${s.putthrough_value ? ` · Thỏa thuận ${vnd(s.putthrough_value)}` : ""}`}
+          >
+            <div className="sector-name">{s.sector}</div>
+            <div className={`mono sector-net ${s.net_large >= 0 ? "up" : "down"}`}>
+              {s.net_large > 0 ? "+" : ""}
+              {vnd(s.net_large)}
+            </div>
+            <div className="small muted">
+              {s.n_active}/{s.n_symbols} mã có lệnh lớn
+            </div>
+            <div className="sector-syms">
+              {top.map((x) => (
+                <button
+                  key={x.symbol}
+                  className={`sym-chip ${x.net_large >= 0 ? "up" : "down"}`}
+                  onClick={() => onPick?.(x.symbol)}
+                  disabled={!onPick}
+                >
+                  {x.symbol} <span className="mono">{x.net_large > 0 ? "+" : ""}{vnd(x.net_large)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- timeline
+
+const OPEN_MIN = 9 * 60;
+const CLOSE_MIN = 15 * 60;
+const toMin = (hmStr: string) => {
+  const [h, m] = hmStr.split(":").map(Number);
+  return h * 60 + m;
+};
+const toHm = (min: number) =>
+  `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/**
+ * Scrub through today's session: `at` = null means live. Play replays the day from the
+ * current position (2 minutes per step) and returns to live at the end.
+ */
+export function Timeline({
+  at,
+  nowHm,
+  onChange,
+}: {
+  at: string | null;
+  nowHm: string;
+  onChange: (at: string | null) => void;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const end = Math.max(OPEN_MIN, Math.min(CLOSE_MIN, toMin(nowHm || "15:00")));
+  const value = at ? toMin(at) : end;
+
+  useEffect(() => {
+    if (!playing) return;
+    const t = window.setInterval(() => {
+      const next = (at ? toMin(at) : OPEN_MIN) + 2;
+      if (next >= end) {
+        setPlaying(false);
+        onChange(null);
+      } else {
+        onChange(toHm(next));
+      }
+    }, 450);
+    return () => window.clearInterval(t);
+  }, [playing, at, end, onChange]);
+
+  return (
+    <div className="timeline" role="group" aria-label="Dòng thời gian trong ngày">
+      <button
+        className="tl-btn"
+        onClick={() => {
+          if (!playing && !at) onChange(toHm(OPEN_MIN));
+          setPlaying(!playing);
+        }}
+        aria-label={playing ? "Tạm dừng" : "Phát lại phiên"}
+        title={playing ? "Tạm dừng" : "Phát lại diễn biến trong ngày"}
+      >
+        {playing ? "❚❚" : "▶"}
+      </button>
+      <input
+        type="range"
+        min={OPEN_MIN}
+        max={end}
+        step={1}
+        value={value}
+        onChange={(e) => {
+          setPlaying(false);
+          const v = Number(e.target.value);
+          onChange(v >= end ? null : toHm(v));
+        }}
+        aria-label="Thời điểm"
+      />
+      <span className={`mono tl-time ${at ? "tl-past" : ""}`}>{at ?? nowHm ?? "—"}</span>
+      <button
+        className={`tl-live ${at ? "" : "on"}`}
+        onClick={() => {
+          setPlaying(false);
+          onChange(null);
+        }}
+      >
+        ● Trực tiếp
+      </button>
     </div>
   );
 }

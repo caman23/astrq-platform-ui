@@ -76,7 +76,32 @@ export const KIND_LABEL: Record<string, string> = {
   block_order_close: "Nhóm lệnh lớn",
   block_auction: "Khớp định kỳ",
   block_putthrough: "Thỏa thuận",
+  absorption: "Hấp thụ",
+  accumulation: "Gom/xả âm thầm",
 };
+
+/** Families used by the accuracy table. */
+export const FAMILY_LABEL: Record<string, string> = {
+  block_order: "Nhóm lệnh lớn",
+  absorption: "Hấp thụ",
+  accumulation: "Gom/xả âm thầm",
+  block_auction: "Khớp định kỳ",
+  block_putthrough: "Thỏa thuận",
+  all: "Tất cả",
+};
+
+export const HORIZON_LABEL: Record<string, string> = { "5m": "5′", "15m": "15′", "30m": "30′" };
+
+/** Colour class for a price move seen from the order's side (good = moved its way). */
+export function moveClass(move: number | null | undefined, side: Side): string {
+  if (move == null || side === "unknown" || move === 0) return "muted";
+  return (side === "buy" ? move > 0 : move < 0) ? "up" : "down";
+}
+
+/** "HH:MM" in Vietnam time for an ISO timestamp. */
+export function hm(iso: string | null | undefined): string {
+  return hms(iso).slice(0, 5);
+}
 
 export const STATE_LABEL: Record<string, string> = {
   open: "Đang mở",

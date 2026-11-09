@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Instrument, RadarSymbol, RadarView, Severity, Signal } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Instrument, RadarSymbol, RadarView, SectorsView, Severity, Signal } from "./api";
 import { api } from "./api";
 import { OrderFull, SeverityBadge, SideTag } from "./components/OrderDetails";
-import { RankTable, SignalFeed, SystemPanel } from "./components/Panels";
+import {
+  RankTable,
+  SectorHeatmap,
+  SignalFeed,
+  StatsPanel,
+  SystemPanel,
+  Timeline,
+} from "./components/Panels";
 import { Radar } from "./components/Radar";
-import { DISCLAIMER, SESSION_LABEL, SEVERITY_LABEL, SEVERITY_RANK, hms } from "./format";
+import { DISCLAIMER, SESSION_LABEL, SEVERITY_LABEL, SEVERITY_RANK, hm, hms } from "./format";
 import { useLive } from "./useLive";
 import { useThrottledReload } from "./useThrottledReload";
 
 type SideFilter = "all" | "buy" | "sell";
-type Tab = "feed" | "rank" | "system";
+type Tab = "feed" | "rank" | "sectors" | "stats" | "system";
 
 export default function App() {
   const [initial, setInitial] = useState<Signal[]>([]);
@@ -25,13 +32,32 @@ export default function App() {
   const [minSev, setMinSev] = useState<Severity>("notice");
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("feed");
+  // timeline: null = live, "HH:MM" = the radar as it was at that moment today
+  const [at, setAt] = useState<string | null>(null);
+  const atRef = useRef(at);
+  atRef.current = at;
+  const [sectors, setSectors] = useState<SectorsView | null>(null);
 
   useEffect(() => {
     api.universe().then((u) => setUniverse(u.instruments)).catch(() => undefined);
     api.signals().then(setInitial).catch(() => undefined);
   }, []);
 
-  useThrottledReload(() => api.view(), live.radarTick, 2500, setView);
+  // Live: reload after radar signals (throttled). Timeline: reload on every scrub step;
+  // a late response for an older position is dropped.
+  const matchesAt = (v: { at?: string | null }) => (v.at ? hm(v.at) : null) === atRef.current;
+  useThrottledReload(
+    () => api.view(null, at),
+    at ?? `live:${live.radarTick}`,
+    at ? 150 : 2500,
+    (v) => matchesAt(v) && setView(v),
+  );
+  useThrottledReload(
+    () => (tab === "sectors" ? api.sectors(at) : Promise.resolve(null)),
+    `${tab}:${at ?? live.radarTick}`,
+    at ? 150 : 3000,
+    (v) => v && matchesAt(v) && setSectors(v),
+  );
   useThrottledReload(
     () => (pinned ? api.view(pinned) : Promise.resolve(null)),
     `${pinned}:${live.radarTick}`,
@@ -50,15 +76,17 @@ export default function App() {
     );
   }, [view, minSev, sideFilter, q]);
 
+  const atIso = at && view?.trading_date ? `${view.trading_date}T${at}:59+07:00` : null;
   const feed = useMemo(
     () =>
       live.signals.filter(
         (s) =>
+          (!atIso || Date.parse(s.ts) <= Date.parse(atIso)) &&
           SEVERITY_RANK[s.severity] >= SEVERITY_RANK[minSev] &&
           (sideFilter === "all" || s.side === sideFilter) &&
           (!q || s.symbol.includes(q)),
       ),
-    [live.signals, minSev, sideFilter, q],
+    [live.signals, minSev, sideFilter, q, atIso],
   );
 
   const status = live.status;
@@ -130,6 +158,11 @@ export default function App() {
         <span className="muted small">
           Hiển thị {visible.length}/{view?.symbols.length ?? 0} mã
         </span>
+        {at && (
+          <button className="chip chip-past" onClick={() => setAt(null)} title="Về trực tiếp">
+            ⏪ Đang xem lại lúc {at} · về trực tiếp
+          </button>
+        )}
       </div>
 
       <main className="layout">
@@ -139,9 +172,10 @@ export default function App() {
             universe={universe}
             pinned={pinned}
             onPin={setPinned}
-            now={status?.now ?? null}
+            now={atIso ?? status?.now ?? null}
           />
-          {latestAlert && Date.now() - latestAlert.at < 12_000 && (
+          <Timeline at={at} nowHm={hm(status?.now)} onChange={setAt} />
+          {!at && latestAlert && Date.now() - latestAlert.at < 12_000 && (
             <button
               className={`toast sev-${latestAlert.severity}`}
               onClick={() => latestAlert.symbol && setPinned(latestAlert.symbol)}
@@ -159,6 +193,12 @@ export default function App() {
             <button role="tab" aria-selected={tab === "rank"} onClick={() => setTab("rank")}>
               Bảng VN100
             </button>
+            <button role="tab" aria-selected={tab === "sectors"} onClick={() => setTab("sectors")}>
+              Ngành
+            </button>
+            <button role="tab" aria-selected={tab === "stats"} onClick={() => setTab("stats")}>
+              Hiệu quả
+            </button>
             <button role="tab" aria-selected={tab === "system"} onClick={() => setTab("system")}>
               Hệ thống
             </button>
@@ -166,6 +206,18 @@ export default function App() {
           <div className="tab-body">
             {tab === "feed" && <SignalFeed signals={feed.slice(0, 120)} onPick={setPinned} />}
             {tab === "rank" && <RankTable symbols={visible} onPick={setPinned} />}
+            {tab === "sectors" &&
+              (sectors ? (
+                <SectorHeatmap sectors={sectors.sectors} onPick={setPinned} />
+              ) : (
+                <p className="empty">Đang tải…</p>
+              ))}
+            {tab === "stats" &&
+              (at ? (
+                <p className="empty">Bảng hiệu quả chỉ có ở chế độ trực tiếp.</p>
+              ) : (
+                <StatsPanel stats={view?.stats} />
+              ))}
             {tab === "system" && <SystemPanel status={status} />}
           </div>
         </aside>
