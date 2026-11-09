@@ -70,9 +70,10 @@ function OrderLine({ o }: { o: Order }) {
   );
 }
 
-export function TradesTable({ trades, max }: { trades: Trade[]; max?: number }) {
+export function TradesTable({ trades, max, total }: { trades: Trade[]; max?: number; total?: number }) {
   const rows = max ? trades.slice(-max) : trades;
-  const hidden = trades.length - rows.length;
+  // the overview view only ships the last few trades; `total` is the order's real count
+  const hidden = Math.max(total ?? trades.length, trades.length) - rows.length;
   return (
     <table className="trades">
       <thead>
@@ -164,7 +165,7 @@ export function OrderPeek({ s }: { s: RadarSymbol }) {
               ({latest.n_trades > 1 ? duration(latest.duration_sec) : "1 lần khớp"})
             </span>
           </div>
-          <TradesTable trades={latest.trades} max={8} />
+          <TradesTable trades={latest.trades} max={8} total={latest.n_trades} />
           <Flags flags={latest.quality_flags} />
         </>
       )}
