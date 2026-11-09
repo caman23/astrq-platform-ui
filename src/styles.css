@@ -390,3 +390,7 @@ html.embed .tooltip { width: min(340px, calc(100vw - 16px)); }
   .timeline { left: 8px; right: 8px; gap: 6px; }
   .tl-live { padding: 2px 6px; }
 }
+
+/* /embed?timeline=1: the timeline sits under the scope instead of floating over it */
+html.embed .timeline { position: static; margin: 0 4px; padding: 3px 8px; }
+html.embed-timeline .radar-wrap { max-width: min(100%, calc(100vh - 150px)); }
