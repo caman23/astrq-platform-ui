@@ -16,9 +16,19 @@ interface Props {
   /** Market-clock "now" (ISO). Blips dim as their last signal ages. */
   now: string | null;
   showLegend?: boolean;
+  /** Watchlist: always labelled, marked with a ring. */
+  watched?: Set<string>;
 }
 
 const FADE_MINUTES = 90; // market minutes until a quiet symbol reaches minimum brightness
+
+interface Label {
+  x: number;
+  y: number;
+  anchor: "start" | "middle" | "end";
+  /** label moved away from its mark: draw a thin leader line */
+  lead: boolean;
+}
 
 interface Placed {
   s: RadarSymbol;
@@ -26,7 +36,152 @@ interface Placed {
   x: number;
   y: number;
   size: number;
+  /** null = no room: shown only on hover/focus */
+  label: Label | null;
 }
+
+interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** Mono font: advance ≈ 0.6 em; tickers are 3 characters (a few have 4+). */
+function labelBox(l: Label, text: string, font: number): Box {
+  const w = text.length * font * 0.6;
+  const h = font * 0.9;
+  const x0 = l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - w : l.x - w / 2;
+  // text is drawn with its baseline ~0.3em below the given y (dominant-baseline: middle)
+  return { x0: x0 - 2, y0: l.y - h / 2 - 1, x1: x0 + w + 2, y1: l.y + h / 2 + 1 };
+}
+
+const SEV_RANK = { info: 0, notice: 1, alert: 2 } as const;
+
+/**
+ * Place marks and their labels without collisions.
+ *
+ * 1. Marks keep their meaning (sector angle, score radius) but nearly-coincident ones are
+ *    nudged apart by a few relaxation passes, bounded so nothing drifts far.
+ * 2. Labels go to the first free spot of 8 candidates around the mark (then farther out
+ *    with a leader line), most important symbols first. Whatever finds no room is shown
+ *    on hover only, so a busy session stays readable instead of a pile of text.
+ */
+function layout(
+  symbols: RadarSymbol[],
+  angleOf: Map<string, number>,
+  scale: { font: number; mark: number },
+  priorityOf: (s: RadarSymbol) => number,
+): Placed[] {
+  const maxVal = Math.max(1, ...symbols.map((s) => s.day_large_buy + s.day_large_sell));
+  const marks = symbols.map((s, i) => {
+    const angle = angleOf.get(s.symbol) ?? (i * 137.5) % 360;
+    const r = radiusFor(s.max_score);
+    const { x, y } = polar(angle, r);
+    const v = s.day_large_buy + s.day_large_sell;
+    const size = (6 + 9 * Math.sqrt(Math.max(0, v) / maxVal)) * scale.mark;
+    return { s, angle, x, y, x0: x, y0: y, size };
+  });
+
+  // 1. relax overlapping marks (O(n²), n ≤ 100)
+  const MAX_SHIFT = 26 * scale.mark;
+  for (let iter = 0; iter < 30; iter++) {
+    let moved = false;
+    for (let i = 0; i < marks.length; i++) {
+      for (let j = i + 1; j < marks.length; j++) {
+        const a = marks[i];
+        const b = marks[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let d = Math.hypot(dx, dy);
+        const min = a.size + b.size + 3;
+        if (d >= min) continue;
+        if (d < 0.01) {
+          // identical spot: split along the ring
+          dx = Math.cos((a.angle * Math.PI) / 180);
+          dy = Math.sin((a.angle * Math.PI) / 180);
+          d = 1;
+        }
+        const push = (min - d) / 2;
+        const ux = dx / d;
+        const uy = dy / d;
+        a.x -= ux * push;
+        a.y -= uy * push;
+        b.x += ux * push;
+        b.y += uy * push;
+        moved = true;
+      }
+    }
+    for (const m of marks) {
+      // stay near the true position and inside the scope
+      const sx = m.x - m.x0;
+      const sy = m.y - m.y0;
+      const shift = Math.hypot(sx, sy);
+      if (shift > MAX_SHIFT) {
+        m.x = m.x0 + (sx / shift) * MAX_SHIFT;
+        m.y = m.y0 + (sy / shift) * MAX_SHIFT;
+      }
+      const r = Math.hypot(m.x, m.y);
+      const rMax = R - m.size;
+      if (r > rMax) {
+        m.x *= rMax / r;
+        m.y *= rMax / r;
+      }
+    }
+    if (!moved) break;
+  }
+
+  // 2. labels, most important first
+  const font = scale.font;
+  const markBoxes: Box[] = marks.map((m) => ({
+    x0: m.x - m.size,
+    y0: m.y - m.size,
+    x1: m.x + m.size,
+    y1: m.y + m.size,
+  }));
+  const taken: Box[] = [];
+  const labels = new Map<string, Label | null>();
+  const order = marks
+    .map((m, i) => ({ m, i, p: priorityOf(m.s) }))
+    .sort((a, b) => b.p - a.p || b.m.s.max_score - a.m.s.max_score);
+  for (const { m, i, p } of order) {
+    const g = m.size + 4;
+    const far = g + font * 1.1;
+    const outward = m.x >= 0; // prefer the side facing away from the center
+    const side = (d: number): Label => ({ x: m.x + d, y: m.y, anchor: d > 0 ? "start" : "end", lead: false });
+    const candidates: Label[] = [
+      outward ? side(g) : side(-g),
+      outward ? side(-g) : side(g),
+      { x: m.x, y: m.y - g - font * 0.45, anchor: "middle", lead: false },
+      { x: m.x, y: m.y + g + font * 0.45, anchor: "middle", lead: false },
+      { x: m.x + g * 0.8, y: m.y - g * 0.9, anchor: "start", lead: false },
+      { x: m.x - g * 0.8, y: m.y - g * 0.9, anchor: "end", lead: false },
+      { x: m.x + g * 0.8, y: m.y + g * 0.9, anchor: "start", lead: false },
+      { x: m.x - g * 0.8, y: m.y + g * 0.9, anchor: "end", lead: false },
+      { ...(outward ? side(far) : side(-far)), lead: true },
+      { x: m.x, y: m.y - far - font * 0.3, anchor: "middle", lead: true },
+      { x: m.x, y: m.y + far + font * 0.3, anchor: "middle", lead: true },
+    ];
+    const fits = (l: Label) => {
+      const b = labelBox(l, m.s.symbol, font);
+      if (Math.hypot(Math.max(Math.abs(b.x0), Math.abs(b.x1)), Math.max(Math.abs(b.y0), Math.abs(b.y1))) > R + 30)
+        return false;
+      return !taken.some((t) => overlaps(t, b)) && !markBoxes.some((mb, k) => k !== i && overlaps(mb, b));
+    };
+    let chosen = candidates.find(fits) ?? null;
+    // must-show symbols (pinned, alerts, watchlist) keep a label even when crowded
+    if (!chosen && p >= MUST_LABEL) chosen = candidates[0];
+    if (chosen) taken.push(labelBox(chosen, m.s.symbol, font));
+    labels.set(m.s.symbol, chosen);
+  }
+
+  return marks.map((m) => ({ s: m.s, angle: m.angle, x: m.x, y: m.y, size: m.size, label: labels.get(m.s.symbol) ?? null }));
+}
+
+/** Priorities at or above this always get a label. */
+const MUST_LABEL = 100;
 
 /** Score 100 -> near center, score 0 -> outer ring. */
 const radiusFor = (score: number) => R_MIN + (1 - Math.min(100, Math.max(0, score)) / 100) * (R - R_MIN - 18);
@@ -75,7 +230,7 @@ function glyphPath(kind: string, size: number): string {
   }
 }
 
-export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true }: Props) {
+export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true, watched }: Props) {
   const nowMs = now ? Date.parse(now) : Date.now();
   const wrapRef = useRef<HTMLDivElement>(null);
   const sweepRef = useRef<SVGGElement>(null);
@@ -86,16 +241,35 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
 
   const { angleOf, wedges } = useMemo(() => sectorLayout(universe), [universe]);
 
+  // Text and marks are sized in screen pixels, not SVG units: measure the rendered width.
+  const [width, setWidth] = useState(700);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => setWidth(Math.max(240, el.getBoundingClientRect().width));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const unitsPerPx = 1000 / width;
+  const scale = useMemo(
+    () => ({
+      font: Math.round(12 * unitsPerPx), // ~12 px labels at any size
+      mark: Math.min(1.9, Math.max(1, 0.62 * unitsPerPx)), // marks never smaller than ~9 px
+    }),
+    [unitsPerPx],
+  );
+
   const placed: Placed[] = useMemo(() => {
-    const maxVal = Math.max(1, ...symbols.map((s) => s.day_large_buy + s.day_large_sell));
-    return symbols.map((s, i) => {
-      const angle = angleOf.get(s.symbol) ?? (i * 137.5) % 360;
-      const { x, y } = polar(angle, radiusFor(s.max_score));
-      const v = s.day_large_buy + s.day_large_sell;
-      const size = 6 + 9 * Math.sqrt(Math.max(0, v) / maxVal);
-      return { s, angle, x, y, size };
-    });
-  }, [symbols, angleOf]);
+    const priorityOf = (s: RadarSymbol) =>
+      (s.symbol === pinned ? 1000 : 0) +
+      (watched?.has(s.symbol) ? 300 : 0) +
+      (s.max_severity === "alert" ? 100 : 0) +
+      SEV_RANK[s.max_severity] * 10 +
+      s.max_score / 10;
+    return layout(symbols, angleOf, scale, priorityOf);
+  }, [symbols, angleOf, scale, pinned, watched]);
 
   // Detect fresh signals per symbol to trigger a ping ripple.
   const lastSeen = useRef(new Map<string, string>());
@@ -198,9 +372,9 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
           const mid = polar((w.start + w.end) / 2, R + 36);
           const midDeg = (w.start + w.end) / 2;
           const flip = midDeg > 90 && midDeg < 270;
-          // Only label wedges whose arc can hold the text (≈9 units per char at 15px).
+          // Only label wedges whose arc can hold the text (uppercase + tracking ≈ 0.7 em per character).
           const arc = ((w.end - w.start) * Math.PI * (R + 36)) / 180;
-          const fits = arc >= w.name.length * 9 + 8;
+          const fits = arc >= w.name.length * Math.round(11 * unitsPerPx) * 0.7 + 8;
           return (
             <g key={w.name}>
               <line x1="0" y1="0" x2={a.x} y2={a.y} className="spoke" />
@@ -212,7 +386,8 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
                   className="sector-label"
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  transform={`rotate(${flip ? midDeg + 180 : midDeg} ${mid.x} ${mid.y})`}
+                    transform={`rotate(${flip ? midDeg + 180 : midDeg} ${mid.x} ${mid.y})`}
+                  style={{ fontSize: Math.round(11 * unitsPerPx) }}
                 >
                   {w.name}
                 </text>
@@ -226,7 +401,13 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
         ))}
         <circle r={R_MIN} className="ring ring-core" />
         {[100, 75, 50, 25].map((score) => (
-          <text key={score} x="6" y={-radiusFor(score) + 4} className="ring-label">
+          <text
+            key={score}
+            x={6}
+            y={-radiusFor(score) + 4}
+            className="ring-label"
+            style={{ fontSize: Math.round(10 * unitsPerPx) }}
+          >
             {score}
           </text>
         ))}
@@ -255,8 +436,15 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
           const s = p.s;
           const kind = s.dominant_side;
           const isPinned = pinned === s.symbol;
+          const isHovered = hover?.symbol === s.symbol;
+          const isWatched = watched?.has(s.symbol) ?? false;
           const ping = pings[s.symbol];
-          const labelLeft = p.x < 0;
+          // hidden labels appear on hover/focus, beside the mark
+          const label: Label | null =
+            p.label ??
+            (isHovered || isPinned
+              ? { x: p.x >= 0 ? p.x + p.size + 4 : p.x - p.size - 4, y: p.y, anchor: p.x >= 0 ? "start" : "end", lead: false }
+              : null);
           const ageMin = Math.max(0, (nowMs - Date.parse(s.last_signal_at)) / 60_000);
           const age = Math.max(0.3, 1 - ageMin / FADE_MINUTES);
           return (
@@ -268,9 +456,8 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
                 else blipRefs.current.delete(s.symbol);
               }}
               className={`blip side-${kind} sev-${s.max_severity}${isPinned ? " pinned" : ""}${
-                hover?.symbol === s.symbol ? " hovered" : ""
-              }`}
-              transform={`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`}
+                isHovered ? " hovered" : ""
+              }${isWatched ? " watched" : ""}`}
               onPointerMove={onMove(s.symbol)}
               onPointerEnter={onMove(s.symbol)}
               onClick={() => onPin(s.symbol)}
@@ -280,25 +467,42 @@ export function Radar({ symbols, universe, pinned, onPin, now, showLegend = true
               onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onPin(s.symbol)}
               onFocus={() => {
                 const box = wrapRef.current!.getBoundingClientRect();
-                const scale = box.width / 1000;
-                setHover({ symbol: s.symbol, x: (p.x + 500) * scale, y: (p.y + 500) * scale });
+                const k = box.width / 1000;
+                setHover({ symbol: s.symbol, x: (p.x + 500) * k, y: (p.y + 500) * k });
               }}
               onBlur={() => setHover(null)}
             >
-              {ping && <circle key={ping} r={p.size} className="ping" />}
-              {s.max_severity === "alert" && age > 0.8 && (
-                <circle r={p.size + 7} className="alert-ring" />
+              <g transform={`translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`}>
+                {ping && <circle key={ping} r={p.size} className="ping" />}
+                {s.max_severity === "alert" && age > 0.8 && (
+                  <circle r={p.size + 6 * scale.mark} className="alert-ring" />
+                )}
+                {isWatched && <circle r={p.size + 4 * scale.mark} className="watch-ring" />}
+                <circle r={Math.max(14 * unitsPerPx, p.size + 6)} className="hit" />
+                <path d={glyphPath(kind, p.size)} className="glyph" />
+              </g>
+              {label?.lead && (
+                <line
+                  x1={p.x}
+                  y1={p.y}
+                  x2={label.x}
+                  y2={label.y}
+                  className="blip-lead"
+                  strokeWidth={unitsPerPx}
+                />
               )}
-              <circle r={Math.max(22, p.size + 8)} className="hit" />
-              <path d={glyphPath(kind, p.size)} className="glyph" />
-              <text
-                x={labelLeft ? -p.size - 5 : p.size + 5}
-                y="4"
-                textAnchor={labelLeft ? "end" : "start"}
-                className="blip-label"
-              >
-                {s.symbol}
-              </text>
+              {label && (
+                <text
+                  x={label.x.toFixed(1)}
+                  y={label.y.toFixed(1)}
+                  textAnchor={label.anchor}
+                  dominantBaseline="central"
+                  className="blip-label"
+                  style={{ fontSize: scale.font, strokeWidth: 3.5 * unitsPerPx }}
+                >
+                  {s.symbol}
+                </text>
+              )}
             </g>
           );
         })}

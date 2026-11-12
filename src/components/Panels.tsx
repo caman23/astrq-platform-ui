@@ -14,6 +14,26 @@ import {
   vnd,
 } from "../format";
 import { SeverityBadge, SideTag } from "./OrderDetails";
+import type { Watchlist } from "../prefs";
+import { downloadCsv } from "../prefs";
+
+export function StarButton({ symbol, watch }: { symbol: string; watch: Watchlist }) {
+  const on = watch.has(symbol);
+  return (
+    <button
+      className={`star ${on ? "on" : ""}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        watch.toggle(symbol);
+      }}
+      aria-pressed={on}
+      aria-label={on ? `Bỏ theo dõi ${symbol}` : `Theo dõi ${symbol}`}
+      title={on ? "Bỏ theo dõi" : "Theo dõi"}
+    >
+      {on ? "★" : "☆"}
+    </button>
+  );
+}
 
 export function SignalFeed({
   signals,
@@ -53,9 +73,13 @@ type SortKey = "net" | "score";
 export function RankTable({
   symbols,
   onPick,
+  watch,
+  tradingDate,
 }: {
   symbols: RadarSymbol[];
   onPick: (symbol: string) => void;
+  watch: Watchlist;
+  tradingDate?: string;
 }) {
   const [sort, setSort] = useState<SortKey>("net");
   const rows = [...symbols].sort((a, b) =>
@@ -63,19 +87,43 @@ export function RankTable({
       ? Math.abs(b.day_net_large) - Math.abs(a.day_net_large)
       : b.max_score - a.max_score,
   );
+  const exportCsv = () =>
+    downloadCsv(
+      `radar-lenh-lon-${tradingDate ?? "hom-nay"}.csv`,
+      ["Mã", "Ngành", "Chiều chủ đạo", "Ròng lớn (VND)", "Mua lớn (VND)", "Bán lớn (VND)", "Thỏa thuận (VND)", "Số lệnh lớn", "Điểm cao nhất", "Mức độ", "Tín hiệu cuối"],
+      rows.map((s) => [
+        s.symbol,
+        s.sector ?? "",
+        s.dominant_side,
+        s.day_net_large,
+        s.day_large_buy,
+        s.day_large_sell,
+        s.day_putthrough_value,
+        s.n_orders,
+        Math.round(s.max_score),
+        s.max_severity,
+        hms(s.last_signal_at),
+      ]),
+    );
   return (
     <div>
-      <div className="seg" role="group" aria-label="Sắp xếp">
-        <button className={sort === "net" ? "on" : ""} onClick={() => setSort("net")}>
-          Theo ròng lớn
-        </button>
-        <button className={sort === "score" ? "on" : ""} onClick={() => setSort("score")}>
-          Theo điểm radar
+      <div className="rank-head">
+        <div className="seg" role="group" aria-label="Sắp xếp">
+          <button className={sort === "net" ? "on" : ""} onClick={() => setSort("net")}>
+            Theo ròng lớn
+          </button>
+          <button className={sort === "score" ? "on" : ""} onClick={() => setSort("score")}>
+            Theo điểm radar
+          </button>
+        </div>
+        <button className="tool-btn" onClick={exportCsv} disabled={!rows.length} title="Tải bảng đang hiển thị dưới dạng CSV">
+          ⤓ CSV
         </button>
       </div>
       <table className="rank">
         <thead>
           <tr>
+            <th aria-label="Theo dõi" />
             <th>Mã</th>
             <th className="r">Ròng lớn</th>
             <th className="r">Mua lớn</th>
@@ -86,6 +134,9 @@ export function RankTable({
         <tbody>
           {rows.map((s) => (
             <tr key={s.symbol} onClick={() => onPick(s.symbol)} tabIndex={0}>
+              <td>
+                <StarButton symbol={s.symbol} watch={watch} />
+              </td>
               <td>
                 <span className="sym">{s.symbol}</span>
               </td>

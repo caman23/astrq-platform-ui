@@ -115,6 +115,9 @@ export interface RadarView {
   trading_date: string;
   /** set when viewing a past moment of the day (timeline) */
   at?: string | null;
+  /** a past session (`?date=`); `has_outcomes` false = saved before archives existed */
+  archived?: boolean;
+  has_outcomes?: boolean;
   stats?: Stats;
   symbols: RadarSymbol[];
 }
@@ -143,8 +146,38 @@ export interface Sector {
 
 export interface SectorsView {
   trading_date: string;
+  archived?: boolean;
   at?: string | null;
   sectors: Sector[];
+}
+
+export interface FlowBucket {
+  /** bucket start, "HH:MM" Vietnam time */
+  t: string;
+  buy: number;
+  sell: number;
+  net: number;
+  cum_net: number;
+  n_buy: number;
+  n_sell: number;
+  absorption: number;
+  accumulation: number;
+}
+
+export interface FlowView {
+  trading_date: string;
+  archived?: boolean;
+  at?: string | null;
+  bucket_min: number;
+  buckets: FlowBucket[];
+  totals: {
+    large_buy: number;
+    large_sell: number;
+    net_large: number;
+    buy_share: number;
+    putthrough_value: number;
+    putthrough_count: number;
+  };
 }
 
 export interface Signal {
@@ -241,15 +274,29 @@ const qs = (p: Record<string, string | undefined | null>) => {
   return s ? `?${s}` : "";
 };
 
+export interface History {
+  /** session held by the live radar */
+  live_date: string;
+  today: string;
+  retention_days: number;
+  /** past sessions that can be viewed, newest first */
+  dates: string[];
+}
+
 export const api = {
-  /** `at` = "HH:MM" (Vietnam time) for a past moment of today */
-  view: (symbol?: string | null, at?: string | null) =>
-    getJson<RadarView>(VIEW + qs({ symbol, at })),
-  sectors: (at?: string | null) => getJson<SectorsView>(VIEW + qs({ sectors: "1", at })),
+  /** `at` = "HH:MM" (Vietnam time) for a past moment; `date` = a past session */
+  view: (symbol?: string | null, at?: string | null, date?: string | null) =>
+    getJson<RadarView>(VIEW + qs({ symbol, at, date })),
+  sectors: (at?: string | null, date?: string | null) =>
+    getJson<SectorsView>(VIEW + qs({ sectors: "1", at, date })),
+  /** market-wide large-order flow per `bucket` minutes (1 · 5 · 15 · 30) */
+  flow: (at?: string | null, bucket = 5, date?: string | null) =>
+    getJson<FlowView>(VIEW + qs({ flow: "1", bucket: String(bucket), at, date })),
   universe: () => getJson<{ instruments: Instrument[] }>("/api/universe"),
   tools: () => getJson<ToolInfo[]>("/api/tools"),
-  signals: (limit = 150) =>
-    getJson<Signal[]>(`/api/signals?tool_id=large_order_radar&limit=${limit}`),
+  history: () => getJson<History>("/api/history"),
+  signals: (limit = 150, date?: string | null) =>
+    getJson<Signal[]>(`/api/signals${qs({ tool_id: "large_order_radar", limit: String(limit), date })}`),
   setEnabled: async (toolId: string, enabled: boolean) => {
     const r = await fetch(`/api/tools/${toolId}/enabled`, {
       method: "POST",

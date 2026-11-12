@@ -1,31 +1,33 @@
-/* Radar console theme. Deliberately dark-only: a phosphor scope is unreadable on white.
-   Side colors follow Vietnamese market convention (green = buy, red = sell, amber = mixed).
-   Palette validated with the dataviz validator against --scope-center: CVD ΔE 8.6 (pass),
-   normal-vision ΔE 22 (pass), contrast ≥ 3:1 (pass). Identity never relies on color alone:
-   each side also has its own glyph (▲ ▼ ◆ ●) and every blip carries its ticker label. */
+/* Radar console theme ("than chì" / graphite). Deliberately dark-only.
+   The chrome (scope, beam, panels) is neutral grey so that hue is reserved for data:
+   side colors follow Vietnamese market convention (green = buy, red = sell, amber = mixed).
+   Data palette validated with the dataviz validator: CVD ΔE 8.6 (pass), normal-vision ΔE 22
+   (pass). WCAG contrast on --scope-center/panels: buy ≥ 9.7, sell ≥ 5.8, mixed ≥ 9.7,
+   muted text ≥ 4.2. Identity never relies on color alone: each side also has its own glyph
+   (▲ ▼ ◆ ●) and every blip carries its ticker label. */
 :root {
-  --bg: #040b0a;
-  --panel: #081513;
-  --panel-2: #0c1d1a;
-  --line: #16312c;
-  --line-strong: #23514a;
-  --ink: #d8efe9;
-  --ink-2: #9cbcb4;
-  --muted: #6b8c84;
+  --bg: #0a0b0d;
+  --panel: #121417;
+  --panel-2: #181b1f;
+  --line: #23272d;
+  --line-strong: #343a42;
+  --ink: #e6e8eb;
+  --ink-2: #aab0b8;
+  --muted: #767d87;
 
-  --scope-center: #06110f;
-  --scope-edge: #030807;
-  --scope-rim: #1f5a4f;
-  --grid: rgba(52, 224, 176, 0.16);
-  --grid-strong: rgba(52, 224, 176, 0.32);
-  --beam: #34e0b0;
+  --scope-center: #14171a;
+  --scope-edge: #08090a;
+  --scope-rim: #3a4048;
+  --grid: rgba(220, 225, 232, 0.1);
+  --grid-strong: rgba(220, 225, 232, 0.22);
+  --beam: #d7dce2;
 
   --buy: #3ddc84;
   --sell: #ff5c6c;
   --mixed: #f5b83d;
-  --unknown: #8fb3ab;
+  --unknown: #9aa3ad;
 
-  --sev-info: #7fa49b;
+  --sev-info: #8b939d;
   --sev-notice: #f5b83d;
   --sev-alert: #ff5c6c;
 
@@ -87,7 +89,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: transparent; border: 0; padding: 6px 12px; color: var(--ink-2); font-size: 13px;
 }
 .seg button + button { border-left: 1px solid var(--line-strong); }
-.seg button.on { background: rgba(52, 224, 176, 0.14); color: var(--ink); }
+.seg button.on { background: rgba(215, 220, 226, 0.12); color: var(--ink); }
 .search {
   background: var(--panel); border: 1px solid var(--line-strong); color: var(--ink);
   border-radius: 8px; padding: 6px 10px; width: 130px; font: 13px var(--mono);
@@ -120,19 +122,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: relative; width: 100%;
   max-width: min(100%, calc(100vh - 250px)); min-width: 280px;
 }
-@media (max-width: 640px) {
-  /* SVG units shrink with the scope; enlarge marks and text so they stay legible */
-  .blip-label { font-size: 30px !important; stroke-width: 6px !important; }
-  .blip .glyph { transform: scale(1.7); }
-  .sector-label { font-size: 26px !important; }
-  .ring-label { font-size: 24px !important; }
-}
+/* Text and mark sizes are set from the rendered width in Radar.tsx (constant px). */
 .radar { width: 100%; height: auto; display: block; overflow: visible; }
 .ring { fill: none; stroke: var(--grid); stroke-width: 1.2; }
 .ring-core { stroke: var(--grid-strong); stroke-dasharray: 3 5; }
 .spoke { stroke: var(--grid); stroke-width: 1; }
-.ring-label { fill: var(--muted); font: 15px var(--mono); }
-.sector-label { fill: var(--ink-2); font: 600 15px var(--sans); letter-spacing: 0.03em; }
+.ring-label { fill: var(--muted); font-family: var(--mono); font-size: 15px; opacity: 0.7; }
+.sector-label { fill: var(--muted); font-family: var(--sans); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; }
 .center-dot { fill: var(--beam); filter: drop-shadow(0 0 6px var(--beam)); }
 /* No mix-blend-mode: mobile WebKit drops blended SVG groups, hiding the beam. */
 .sweep { pointer-events: none; transform-origin: 0 0; }
@@ -148,11 +144,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .blip.side-mixed .glyph { fill: var(--mixed); filter: drop-shadow(0 0 calc(var(--glow) * 9px) var(--mixed)); }
 .blip.side-unknown .glyph { fill: var(--unknown); filter: drop-shadow(0 0 calc(var(--glow) * 6px) var(--unknown)); }
 .blip-label {
-  fill: var(--ink); font: 600 17px var(--mono);
+  fill: var(--ink); font-family: var(--mono); font-weight: 600; font-size: 17px;
   opacity: calc((0.35 + var(--glow) * 0.65) * var(--age));
   paint-order: stroke; stroke: var(--scope-center); stroke-width: 4px; pointer-events: none;
 }
+.blip.sev-info .blip-label { fill: var(--ink-2); font-weight: 500; }
+.blip.sev-alert .blip-label { font-weight: 700; }
+.blip.watched .blip-label { fill: var(--ink); }
 .blip.hovered .blip-label, .blip.pinned .blip-label { opacity: 1; fill: #fff; }
+.blip-lead { stroke: var(--ink-2); opacity: calc(0.45 * var(--age)); pointer-events: none; }
+.watch-ring { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.8; }
 .blip.hovered .glyph, .blip.pinned .glyph { opacity: 1; stroke: #fff; }
 .blip.pinned .hit { stroke: var(--beam); stroke-width: 2; stroke-dasharray: 4 4; }
 .alert-ring {
@@ -182,8 +183,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ---------------------------------------------------------------- tooltip */
 .tooltip {
   position: absolute; z-index: 20; width: 380px; max-width: calc(100% - 16px);
-  background: rgba(7, 18, 16, 0.97); border: 1px solid var(--line-strong); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(52, 224, 176, 0.06);
+  background: rgba(18, 20, 23, 0.97); border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(215, 220, 226, 0.06);
   padding: 12px 14px; pointer-events: none; backdrop-filter: blur(4px);
 }
 .peek-head, .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -229,7 +230,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-bottom: 1px solid var(--line);
 }
 .trades th.r { text-align: right; }
-.trades td { padding: 2px 4px; border-bottom: 1px solid rgba(22, 49, 44, 0.5); }
+.trades td { padding: 2px 4px; border-bottom: 1px solid rgba(35, 39, 45, 0.6); }
 .flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .flag {
   font-size: 11px; padding: 1px 6px; border-radius: 4px; color: var(--mixed);
@@ -303,7 +304,7 @@ details summary { cursor: pointer; color: var(--ink-2); }
 /* ---------------------------------------------------------------- misc */
 .toast {
   position: absolute; left: 16px; top: 12px; z-index: 10;
-  max-width: min(360px, calc(100% - 32px)); background: rgba(7, 18, 16, 0.96);
+  max-width: min(360px, calc(100% - 32px)); background: rgba(18, 20, 23, 0.96);
   border: 1px solid var(--line-strong); border-left: 4px solid var(--sev-notice);
   border-radius: 8px; padding: 8px 12px; font-size: 13px; text-align: left;
 }
@@ -372,7 +373,7 @@ html.embed .tooltip { width: min(340px, calc(100vw - 16px)); }
 .timeline {
   position: absolute; left: 16px; right: 16px; bottom: 8px;
   display: flex; align-items: center; gap: 10px;
-  background: rgba(7, 18, 16, 0.9); border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(18, 20, 23, 0.9); border: 1px solid var(--line); border-radius: 999px;
   padding: 4px 10px;
 }
 .timeline input[type="range"] { flex: 1; accent-color: var(--beam); min-width: 80px; }
@@ -394,3 +395,44 @@ html.embed .tooltip { width: min(340px, calc(100vw - 16px)); }
 /* /embed?timeline=1: the timeline sits under the scope instead of floating over it */
 html.embed .timeline { position: static; margin: 0 4px; padding: 3px 8px; }
 html.embed-timeline .radar-wrap { max-width: min(100%, calc(100vh - 150px)); }
+
+/* ---------------------------------------------------------------- market flow */
+.flow-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.flow-totals > div {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0;
+}
+.flow-totals label { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.flow-totals span { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.flow-share { height: 4px; margin: 8px 0; border-radius: 2px; background: var(--sell); overflow: hidden; }
+.flow-share span { display: block; height: 100%; background: var(--buy); }
+.flow-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.flow-chart { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.flow-axis { fill: var(--muted); font: 9px var(--mono); }
+.flow-zero { stroke: var(--line-strong); stroke-width: 1; }
+.flow-lunch { fill: rgba(255, 255, 255, 0.025); }
+.flow-marker { fill: var(--mixed); }
+.flow-active rect:not([fill="transparent"]) { filter: brightness(1.35); }
+.flow-readout { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.flow-note { margin: 8px 2px 0; }
+
+/* ---------------------------------------------------------------- watchlist / prefs */
+.star {
+  background: transparent; border: 0; padding: 0 4px; color: var(--muted); font-size: 14px; line-height: 1;
+}
+.star.on { color: var(--mixed); }
+.star:focus-visible { outline: 2px solid var(--beam); outline-offset: 1px; }
+.tool-btn {
+  background: transparent; border: 1px solid var(--line-strong); color: var(--ink-2);
+  border-radius: 8px; padding: 4px 10px; font-size: 13px; white-space: nowrap;
+}
+.tool-btn.on { color: var(--mixed); border-color: var(--mixed); }
+.rank-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.flow-title { fill: var(--ink-2); font: 600 10px var(--sans); }
+
+/* ---------------------------------------------------------------- session picker */
+.session-pick select {
+  background: transparent; color: var(--ink-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 1px 4px; font: inherit; cursor: pointer;
+}
+.session-pick select:focus-visible { outline: 2px solid var(--beam); outline-offset: 1px; }
+.session-pick option { background: var(--panel); color: var(--ink); }
