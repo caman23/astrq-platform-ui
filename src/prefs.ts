@@ -21,7 +21,7 @@ function save(key: string, value: unknown) {
   }
 }
 
-function usePersistent<T>(key: string, fallback: T): [T, (v: T | ((prev: T) => T)) => void] {
+export function usePersistent<T>(key: string, fallback: T): [T, (v: T | ((prev: T) => T)) => void] {
   const [v, setV] = useState<T>(() => load(key, fallback));
   const set = useCallback(
     (next: T | ((prev: T) => T)) =>

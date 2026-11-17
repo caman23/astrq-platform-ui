@@ -21,6 +21,7 @@ import {
   useWatchlist,
 } from "./prefs";
 import { Radar } from "./components/Radar";
+import { Screener } from "./components/Screener";
 import { DISCLAIMER, SESSION_LABEL, SEVERITY_LABEL, SEVERITY_RANK, hm, hms } from "./format";
 import { useLive } from "./useLive";
 import { useThrottledReload } from "./useThrottledReload";
@@ -43,13 +44,28 @@ export default function App() {
     () => new URLSearchParams(location.search).get("symbol")?.toUpperCase() || null,
   );
   const [pinnedDetail, setPinnedDetail] = useState<RadarSymbol | null>(null);
+  // the symbol had no large order (yet) in the session shown
+  const [pinnedEmpty, setPinnedEmpty] = useState<string | null>(null);
   const [sideFilter, setSideFilter] = useState<SideFilter>("all");
   const [minSev, setMinSev] = useState<Severity>("notice");
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("feed");
+  // page: the realtime large-order radar (default) or the on-demand indicator screener
+  const [mode, setModeState] = useState<"radar" | "screener">(() =>
+    new URLSearchParams(location.search).get("view") === "screener" ? "screener" : "radar",
+  );
+  const setMode = (m: "radar" | "screener") => {
+    setModeState(m);
+    const u = new URL(location.href);
+    if (m === "screener") u.searchParams.set("view", "screener");
+    else u.searchParams.delete("view");
+    history_replace(u);
+  };
   // timeline: null = live, "HH:MM" = the radar as it was at that moment today
   const [at, setAt] = useState<string | null>(null);
   const atRef = useRef(at);
+  const pinnedRef = useRef<string | null>(null);
+  pinnedRef.current = pinned;
   atRef.current = at;
   const [sectors, setSectors] = useState<SectorsView | null>(null);
   const [flow, setFlow] = useState<FlowView | null>(null);
@@ -125,7 +141,10 @@ export default function App() {
     () => (pinned ? api.view(pinned, null, date) : Promise.resolve(null)),
     `${pinned}:${date ?? live.radarTick}`,
     1500,
-    (v) => setPinnedDetail(v?.symbols[0] ?? null),
+    (v) => {
+      setPinnedDetail(v?.symbols[0] ?? null);
+      setPinnedEmpty(v && v.symbols.length === 0 ? pinnedRef.current : null);
+    },
   );
 
   // Outside trading hours with an empty live radar (weekend, holiday, before the open,
@@ -200,6 +219,19 @@ export default function App() {
             </div>
           </div>
         </div>
+        <div className="seg mode-switch" role="tablist" aria-label="Chức năng">
+          <button role="tab" aria-selected={mode === "radar"} className={mode === "radar" ? "on" : ""} onClick={() => setMode("radar")}>
+            ◎ Radar lệnh lớn
+          </button>
+          <button
+            role="tab"
+            aria-selected={mode === "screener"}
+            className={mode === "screener" ? "on" : ""}
+            onClick={() => setMode("screener")}
+          >
+            ⚙ Lọc chỉ báo
+          </button>
+        </div>
         <div className="top-stats">
           <div className="stat">
             <label>Giờ thị trường</label>
@@ -228,6 +260,18 @@ export default function App() {
         </div>
       </header>
 
+      {mode === "screener" && (
+        <Screener
+          watch={watch}
+          onOpenSymbol={(sym) => {
+            setMode("radar");
+            pickDate(null);
+            setPinned(sym);
+          }}
+        />
+      )}
+      {mode === "radar" && (
+      <>
       <div className="filters" role="toolbar" aria-label="Bộ lọc">
         <div className="seg" role="group" aria-label="Chiều">
           {(["all", "buy", "sell"] as SideFilter[]).map((k) => (
@@ -347,8 +391,10 @@ export default function App() {
           </div>
         </aside>
       </main>
+      </>
+      )}
 
-      {pinned && (
+      {pinned && mode === "radar" && (
         <div className="drawer" role="dialog" aria-label={`Chi tiết ${pinned}`}>
           <div className="drawer-head">
             <div>
@@ -367,7 +413,16 @@ export default function App() {
             </button>
           </div>
           <div className="drawer-body">
-            {pinnedSummary ? <OrderFull s={pinnedSummary} /> : <p className="empty">Đang tải…</p>}
+            {pinnedSummary ? (
+              <OrderFull s={pinnedSummary} />
+            ) : pinnedEmpty === pinned ? (
+              <p className="empty">
+                {date ? `Phiên ${dmy(date)}` : "Hôm nay"} chưa có lệnh lớn nào ở mã {pinned}. Mã sẽ xuất hiện trên
+                radar khi có lệnh lớn.
+              </p>
+            ) : (
+              <p className="empty">Đang tải…</p>
+            )}
           </div>
         </div>
       )}

@@ -274,6 +274,69 @@ const qs = (p: Record<string, string | undefined | null>) => {
   return s ? `?${s}` : "";
 };
 
+// ---------------------------------------------------------------- indicator screener
+
+export interface Operand {
+  ind?: string;
+  value?: number;
+  n?: number;
+  fast?: number;
+  slow?: number;
+  signal?: number;
+  k?: number;
+  field?: string;
+}
+
+export interface Condition {
+  left: Operand;
+  op: string;
+  right: Operand;
+}
+
+export interface IndicatorSpec {
+  id: string;
+  label: string;
+  unit: string;
+  hint: string;
+  params: { name: string; default: number; min: number; max: number }[];
+  fields: { id: string; label: string }[];
+}
+
+export interface ScreenerMeta {
+  source: string;
+  indicators: IndicatorSpec[];
+  presets: { id: string; label: string; conditions: Condition[] }[];
+  ops: { id: string; label: string }[];
+  max_conditions: number;
+}
+
+export interface ScanRow {
+  symbol: string;
+  sector: string | null;
+  date: string;
+  close: number;
+  change_pct: number | null;
+  volume: number;
+  bars: number;
+  checks: boolean[];
+  values: Record<string, number | null>;
+  spark: number[];
+}
+
+export interface ScanResult {
+  source: string;
+  as_of: string | null;
+  logic: "all" | "any";
+  conditions: string[];
+  columns: { key: string; label: string }[];
+  scanned: number;
+  requested: number;
+  matched: number;
+  errors: { symbol: string; error: string }[];
+  took_ms: number;
+  rows: ScanRow[];
+}
+
 export interface History {
   /** session held by the live radar */
   live_date: string;
@@ -295,6 +358,21 @@ export const api = {
   universe: () => getJson<{ instruments: Instrument[] }>("/api/universe"),
   tools: () => getJson<ToolInfo[]>("/api/tools"),
   history: () => getJson<History>("/api/history"),
+  screenerMeta: () => getJson<ScreenerMeta>("/api/screener/meta"),
+  /** run a scan on demand; throws with the server's message on 4xx/5xx */
+  scan: async (body: { conditions: Condition[]; logic: string; symbols?: string[] | null }) => {
+    const r = await fetch("/api/screener/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) {
+      const msg = j?.detail ?? (r.status === 429 ? "Quá nhiều yêu cầu, thử lại sau ít giây." : `HTTP ${r.status}`);
+      throw new Error(msg);
+    }
+    return j as ScanResult;
+  },
   signals: (limit = 150, date?: string | null) =>
     getJson<Signal[]>(`/api/signals${qs({ tool_id: "large_order_radar", limit: String(limit), date })}`),
   setEnabled: async (toolId: string, enabled: boolean) => {
