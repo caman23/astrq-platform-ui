@@ -1,0 +1,18 @@
+# Weekly dependency updates, opened against develop (the integration branch).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    schedule: { interval: weekly, day: monday, timezone: Asia/Ho_Chi_Minh }
+    groups:
+      npm-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule: { interval: weekly, day: monday, timezone: Asia/Ho_Chi_Minh }
+    groups:
+      actions:
+        patterns: ["*"]
