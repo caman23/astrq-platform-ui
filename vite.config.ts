@@ -12,6 +12,8 @@ export default defineConfig({
       "/health": backend,
       "/ready": backend,
       "/metrics": backend,
+      "/docs": backend,
+      "/openapi.json": backend,
       "/ws": { target: backend.replace(/^http/, "ws"), ws: true },
     },
   },
